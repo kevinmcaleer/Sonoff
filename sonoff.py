@@ -1,5 +1,5 @@
-// Basic Sonoff Program
-// Connect to my Local Wifi & MQTT server
+# Basic Sonoff Program
+# Connect to my Local Wifi & MQTT server
 
 import time
 from umqttsimple import MQTTClient
@@ -19,6 +19,9 @@ client_id = ubinascii.hexlify(machine.unique_id())
 topic_sub = b'robotlab' # This is the topic you want to subscribe to
 topic_pub = b'robotlab' # This is the topic you want to publish to
 servo_pin = machine.PWM(machine.Pin(2))
+relay_pin = 12
+button_pin = 0
+led_pin = 13
 print("Sonoff Device Online")
 
 class State():
@@ -35,7 +38,7 @@ class State():
         self.on = value
         
 output = State()
-output.state
+output.state = False
 
 last_message = 0
 message_interval = 5
@@ -52,14 +55,56 @@ while station.isconnected() == False:
 print('Connection successful')
 print(station.ifconfig())
 
+def led_off():
+    led = machine.Pin(led_pin, machine.Pin.OUT)
+    led.value(1)
+
+
+def led_on():
+    led = machine.Pin(led_pin, machine.Pin.OUT)
+    led.value(0)
+
+def relay_off():
+    led = machine.Pin(relay_pin, machine.Pin.OUT)
+    led.value(1)
+
+def relay_on():
+    relay = machine.Pin(relay_pin, machine.Pin.OUT)
+    relay.value(0)
+
+def led_flash(times:int=3):
+    for n in range(times):
+        led_on()
+        time.sleep(0.1)
+        led_off()
+        time.sleep(0.1)
+
+relay_off()
+led_flash(5)
+
 def sub_cb(topic, msg):
     print((topic, msg))
-    if topic == b'notification' and msg == b'received':
-        print('ESP received hello message')
-    if topic == b'flag':
-        print("move flag",msg)
-        move_flag(msg)
-        
+    if topic == topic_sub:
+        print("Device Message",msg)
+        if msg == b"1":
+            output.state = True
+            print("Turning ON device")
+            led_flash(1)
+            led_on()
+            relay_on()
+        if msg == b"0":
+            output.state = False
+            print("Turning OFF device")
+            led_flash(2)
+            led_off()
+            relay_off()
+        if msg not in [b"0",b"1"]:
+            led_flash(1)
+            print("Device State = ", output.state)
+            if output.state:
+                led_on()
+            else:
+                led_off()
 
 def connect_and_subscribe():
     global client_id, mqtt_server, topic_sub
@@ -75,45 +120,47 @@ def restart_reconnect():
     time.sleep(10)
     machine.reset()
     
-def map(x, in_min, in_max, out_min, out_max):
-    return int((x-in_min) * (out_max-out_min) / (in_max - in_min) + out_min)
+def button_pressed()->bool:
+    button = machine.Pin(button_pin, machine.Pin.IN)
+    #print(button.value())
+    if button.value() == 0:
+        print("button pressed")
+        return True
+    if button.value() == 1:
+        
+        return False
 
-def move_flag(angle):
-    pulse = map(int(angle), in_min=0 , in_max=180,out_min=40, out_max=115)
-    print("Angle:", angle, "Pulse:", pulse)
-    
-    servo_pin.duty(pulse)
-    time.sleep(1)
-
-def temp_indicator(temp):
-    """ moves the indicator angle based on the temp coming in """
-    angle = map(int(temp), in_min=0, in_max=50, out_min=180, out_max=0)
-    print("temp is:", temp ,"angle is:",angle)
-    move_flag(angle)
-
-print("waking up")
-for n in range(3):
-    temp_indicator(1)
-    time.sleep(0.25)
-    temp_indicator(50)
-    time.sleep(0.25)
-print("woke up")
+def state_toggle():
+    if output.state == True:
+        output.state = False
+    else:
+        output.state == True
+    #if output.state == True:
+        #led_on()
+        #relay_on()
+    #if output.state == False:
+        #led_off()
+        #relay_off()
 
 try:
     client = connect_and_subscribe()
 except OSError as e:
-    restart_and_reconnect()
+    restart_reconnect()
     
 while True:
     try:
         client.check_msg()
-        print("measuring Temp")
-        dht22.measure()
-        print("setting angle")
-        temp_indicator(dht22.temperature())
-        msg = str(dht22.temperature())
-        client.publish(topic_pub, msg)
+        # client.publish(topic_pub, msg)
+        if button_pressed():
+            state_toggle()
+            if output.state == False:
+                msg = "0"
+            if output.state == True:
+                msg = "1"
+            client.publish(topic_pub, msg)
+            time.sleep(1)
+            
 
     except OSError as e:
-        restart_and_reconnect()
+        restart_reconnect()
 
